@@ -15,10 +15,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this software.  If not, see <http://www.gnu.org/licenses/>.
 
-import json
 import os
 import pipes
 import stat
+
+try:
+    import json
+except ImportError:
+    try:
+        import simplejson as json
+    except ImportError:
+        # Let snippet from module_utils/basic.py return a proper error in this case
+        pass
+
 
 DOCUMENTATION = '''
 ---
@@ -39,16 +48,10 @@ options:
     required: false
     default: None
   manifest:
-    desciption:
+    description:
       - Path to the manifest file to run puppet apply on.
     required: false
     default: None
-  show_diff:
-    description:
-      - Should puppet return diffs of changes applied. Defaults to off to avoid leaking secret changes by default.
-    required: false
-    default: no
-    choices: [ "yes", "no" ]
   facts:
     description:
       - A dict of values to pass in as persistent external facter facts
@@ -64,6 +67,19 @@ options:
       - Puppet environment to be used.
     required: false
     default: None
+  logdest:
+    description:
+      - Where the puppet logs should go, if puppet apply is being used
+    required: false
+    default: stdout
+    choices: [ 'stdout', 'syslog' ]
+    version_added: "2.1"
+  certname:
+    description:
+      - The name to use when handling certificates.
+    required: false
+    default: None
+    version_added: "2.1"
 requirements: [ puppet ]
 author: "Monty Taylor (@emonty)"
 '''
@@ -77,6 +93,9 @@ EXAMPLES = '''
 
 # Run puppet using a different environment
 - puppet: environment=testing
+
+# Run puppet using a specific certname
+- puppet: certname=agent01.example.com
 '''
 
 
@@ -108,11 +127,16 @@ def main():
             timeout=dict(default="30m"),
             puppetmaster=dict(required=False, default=None),
             manifest=dict(required=False, default=None),
+            logdest=dict(
+                required=False, default='stdout',
+                choices=['stdout', 'syslog']),
             show_diff=dict(
+                # internal code to work with --diff, do not use
                 default=False, aliases=['show-diff'], type='bool'),
             facts=dict(default=None),
             facter_basename=dict(default='ansible'),
             environment=dict(required=False, default=None),
+            certname=dict(required=False, default=None),
         ),
         supports_check_mode=True,
         mutually_exclusive=[
@@ -122,11 +146,14 @@ def main():
     p = module.params
 
     global PUPPET_CMD
-    PUPPET_CMD = module.get_bin_path("puppet", False)
+    PUPPET_CMD = module.get_bin_path("puppet", False, ['/opt/puppetlabs/bin'])
 
     if not PUPPET_CMD:
         module.fail_json(
             msg="Could not find puppet. Please ensure it is installed.")
+
+    global TIMEOUT_CMD
+    TIMEOUT_CMD = module.get_bin_path("timeout", False)
 
     if p['manifest']:
         if not os.path.exists(p['manifest']):
@@ -140,7 +167,8 @@ def main():
             PUPPET_CMD + " config print agent_disabled_lockfile")
         if os.path.exists(stdout.strip()):
             module.fail_json(
-                msg="Puppet agent is administratively disabled.", disabled=True)
+                msg="Puppet agent is administratively disabled.",
+                disabled=True)
         elif rc != 0:
             module.fail_json(
                 msg="Puppet agent state could not be determined.")
@@ -151,13 +179,18 @@ def main():
             module.params['facter_basename'],
             module.params['facts'])
 
-    base_cmd = "timeout -s 9 %(timeout)s %(puppet_cmd)s" % dict(
-        timeout=pipes.quote(p['timeout']), puppet_cmd=PUPPET_CMD)
+    if TIMEOUT_CMD:
+        base_cmd = "%(timeout_cmd)s -s 9 %(timeout)s %(puppet_cmd)s" % dict(
+            timeout_cmd=TIMEOUT_CMD,
+            timeout=pipes.quote(p['timeout']),
+            puppet_cmd=PUPPET_CMD)
+    else:
+        base_cmd = PUPPET_CMD
 
     if not p['manifest']:
         cmd = ("%(base_cmd)s agent --onetime"
-               " --ignorecache --no-daemonize --no-usecacheonfailure --no-splay"
-               " --detailed-exitcodes --verbose") % dict(
+               " --ignorecache --no-daemonize --no-usecacheonfailure"
+               " --no-splay --detailed-exitcodes --verbose") % dict(
                    base_cmd=base_cmd,
                    )
         if p['puppetmaster']:
@@ -166,14 +199,20 @@ def main():
             cmd += " --show_diff"
         if p['environment']:
             cmd += " --environment '%s'" % p['environment']
+        if p['certname']:
+            cmd += " --certname='%s'" % p['certname']
         if module.check_mode:
             cmd += " --noop"
         else:
             cmd += " --no-noop"
     else:
         cmd = "%s apply --detailed-exitcodes " % base_cmd
+        if p['logdest'] == 'syslog':
+            cmd += "--logdest syslog "
         if p['environment']:
             cmd += "--environment '%s' " % p['environment']
+        if p['certname']:
+            cmd += " --certname='%s'" % p['certname']
         if module.check_mode:
             cmd += "--noop "
         else:
@@ -197,7 +236,7 @@ def main():
             error=True, stdout=stdout, stderr=stderr)
     elif rc == 2:
         # success with changes
-        module.exit_json(rc=0, changed=True)
+        module.exit_json(rc=0, changed=True, stdout=stdout, stderr=stderr)
     elif rc == 124:
         # timeout
         module.exit_json(

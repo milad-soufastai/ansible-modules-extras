@@ -99,11 +99,11 @@ options:
 '''
 
 EXAMPLES = '''
-# Download the latest version of the commons-collections artifact from Maven Central
-- maven_artifact: group_id=org.apache.commons artifact_id=commons-collections dest=/tmp/commons-collections-latest.jar
+# Download the latest version of the JUnit framework artifact from Maven Central
+- maven_artifact: group_id=junit artifact_id=junit dest=/tmp/junit-latest.jar
 
-# Download Apache Commons-Collections 3.2 from Maven Central
-- maven_artifact: group_id=org.apache.commons artifact_id=commons-collections version=3.2 dest=/tmp/commons-collections-3.2.jar
+# Download JUnit 4.11 from Maven Central
+- maven_artifact: group_id=junit artifact_id=junit version=4.11 dest=/tmp/junit-4.11.jar
 
 # Download an artifact from a private repository requiring authentication
 - maven_artifact: group_id=com.company artifact_id=library-name repository_url=https://repo.company.com/maven username=user password=pass dest=/tmp/library-name-latest.jar
@@ -294,14 +294,14 @@ def main():
         argument_spec = dict(
             group_id = dict(default=None),
             artifact_id = dict(default=None),
-            version = dict(default=None),
+            version = dict(default="latest"),
             classifier = dict(default=None),
-            extension = dict(default=None, required=True),
+            extension = dict(default='jar'),
             repository_url = dict(default=None),
             username = dict(default=None),
             password = dict(default=None),
             state = dict(default="present", choices=["present","absent"]), # TODO - Implement a "latest" state
-            dest = dict(default=None),
+            dest = dict(type="path", default=None),
             validate_certs = dict(required=False, default=True, type='bool'),
         )
     )
@@ -332,7 +332,10 @@ def main():
     if os.path.isdir(dest):
         dest = dest + "/" + artifact_id + "-" + version + "." + extension
     if os.path.lexists(dest):
-        prev_state = "present"
+        if not artifact.is_snapshot():
+            prev_state = "present"
+        elif downloader.verify_md5(dest, downloader.find_uri_for_artifact(artifact) + '.md5'):
+            prev_state = "present"
     else:
         path = os.path.dirname(dest)
         if not os.path.exists(path):

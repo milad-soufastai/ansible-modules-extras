@@ -26,7 +26,7 @@ options:
         description:
             - A list of ZooKeeper servers (format '[server]:[port]').
         required: true
-    path:
+    name:
         description:
             - The path of the znode.
         required: true
@@ -52,6 +52,7 @@ options:
         required: false
 requirements:
     - kazoo >= 2.1
+    - python >= 2.6
 author: "Trey Perry (@treyperry)"
 """
 
@@ -224,4 +225,3 @@ class KazooCommandProxy():
 from ansible.module_utils.basic import *
 
 main()
-

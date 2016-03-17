@@ -22,7 +22,6 @@ description:
   - Create or delete AWS Dynamo DB tables.
   - Can update the provisioned throughput on existing tables.
   - Returns the status of the specified table.
-version_added: "2.0"
 author: Alan Loi (@loia)
 version_added: "2.0"
 requirements:
@@ -71,13 +70,9 @@ options:
       - Write throughput capacity (units) to provision.
     required: false
     default: 1
-  region:
-    description:
-      - The AWS region to use. If not specified then the value of the EC2_REGION environment variable, if any, is used.
-    required: false
-    aliases: ['aws_region', 'ec2_region']
-
-extends_documentation_fragment: aws
+extends_documentation_fragment:
+    - aws
+    - ec2
 """
 
 EXAMPLES = '''
@@ -272,8 +267,7 @@ def main():
 
     try:
         connection = connect_to_aws(boto.dynamodb2, region, **aws_connect_params)
-
-    except (NoAuthHandlerFound, StandardError), e:
+    except (NoAuthHandlerFound, AnsibleAWSError), e:
         module.fail_json(msg=str(e))
 
     state = module.params.get('state')
