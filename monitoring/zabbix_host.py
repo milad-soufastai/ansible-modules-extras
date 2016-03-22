@@ -26,7 +26,7 @@ short_description: Zabbix host creates/updates/deletes
 description:
    - This module allows you to create, modify and delete Zabbix host entries and associated group and template data.
 version_added: "2.0"
-author: 
+author:
     - "(@cove)"
     - "Tony Minfei Ding"
     - "Harrison Gu (@harrisongu)"
@@ -61,6 +61,13 @@ options:
             - List of templates linked to the host.
         required: false
         default: None
+    inventory_mode:
+        description:
+            - Configure the inventory mode.
+        choices: ['automatic', 'manual', 'disabled']
+        required: false
+        default: None
+        version_added: '2.1'
     status:
         description:
             - Monitoring status of the host.
@@ -116,6 +123,7 @@ EXAMPLES = '''
       - Example template2
     status: enabled
     state: present
+    inventory_mode: automatic
     interfaces:
       - type: 1
         main: 1
@@ -240,7 +248,7 @@ class Host(object):
         try:
             if self._module.check_mode:
                 self._module.exit_json(changed=True)
-            self._zapi.host.delete({'hostid': host_id})
+            self._zapi.host.delete([host_id])
         except Exception, e:
             self._module.fail_json(msg="Failed to delete host %s: %s" % (host_name, e))
 
@@ -367,6 +375,28 @@ class Host(object):
         except Exception, e:
             self._module.fail_json(msg="Failed to link template to host: %s" % e)
 
+    # Update the host inventory_mode
+    def update_inventory_mode(self, host_id, inventory_mode):
+
+        # nothing was set, do nothing
+        if not inventory_mode:
+            return
+
+        if inventory_mode == "automatic":
+            inventory_mode = int(1)
+        elif inventory_mode == "manual":
+            inventory_mode = int(0)
+        elif inventory_mode == "disabled":
+            inventory_mode = int(-1)
+
+        # watch for - https://support.zabbix.com/browse/ZBX-6033
+        request_str = {'hostid': host_id, 'inventory_mode': inventory_mode}
+        try:
+            if self._module.check_mode:
+                self._module.exit_json(changed=True)
+            self._zapi.host.update(request_str)
+        except Exception, e:
+            self._module.fail_json(msg="Failed to set inventory_mode to host: %s" % e)
 
 def main():
     module = AnsibleModule(
@@ -379,6 +409,7 @@ def main():
             link_templates=dict(type='list', required=False),
             status=dict(default="enabled", choices=['enabled', 'disabled']),
             state=dict(default="present", choices=['present', 'absent']),
+            inventory_mode=dict(required=False, choices=['automatic', 'manual', 'disabled']),
             timeout=dict(type='int', default=10),
             interfaces=dict(type='list', required=False),
             force=dict(type='bool', default=True),
@@ -396,6 +427,7 @@ def main():
     host_name = module.params['host_name']
     host_groups = module.params['host_groups']
     link_templates = module.params['link_templates']
+    inventory_mode = module.params['inventory_mode']
     status = module.params['status']
     state = module.params['state']
     timeout = module.params['timeout']
@@ -440,7 +472,7 @@ def main():
             proxy_id = host.get_proxyid_by_proxy_name(proxy)
         else:
             proxy_id = None
-        
+
         # get host id by host name
         zabbix_host_obj = host.get_host_by_host_name(host_name)
         host_id = zabbix_host_obj['hostid']
@@ -479,12 +511,17 @@ def main():
                                              exist_interfaces_copy, zabbix_host_obj, proxy_id):
                     host.update_host(host_name, group_ids, status, host_id, interfaces, exist_interfaces, proxy_id)
                     host.link_or_clear_template(host_id, template_ids)
+                    host.update_inventory_mode(host_id, inventory_mode)
                     module.exit_json(changed=True,
                                      result="Successfully update host %s (%s) and linked with template '%s'"
                                      % (host_name, ip, link_templates))
                 else:
                     module.exit_json(changed=False)
     else:
+        if state == "absent":
+            # the host is already deleted.
+            module.exit_json(changed=False)
+
         # Use proxy specified, or set to 0 when adding new host
         if proxy:
             proxy_id = host.get_proxyid_by_proxy_name(proxy)
@@ -500,9 +537,9 @@ def main():
         # create host
         host_id = host.add_host(host_name, group_ids, status, interfaces, proxy_id)
         host.link_or_clear_template(host_id, template_ids)
+        host.update_inventory_mode(host_id, inventory_mode)
         module.exit_json(changed=True, result="Successfully added host %s (%s) and linked with template '%s'" % (
             host_name, ip, link_templates))
 
 from ansible.module_utils.basic import *
 main()
-
