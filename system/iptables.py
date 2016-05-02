@@ -211,12 +211,19 @@ options:
         sctp."
     required: false
     default: null
+  to_destination:
+    version_added: "2.1"
+    description:
+      - "This specifies a destination address to use with DNAT: without
+        this, the destination address is never altered."
+    required: false
+    default: null
   set_dscp_mark:
     version_added: "2.1"
     description:
       - "This allows specifying a DSCP mark to be added to packets.
         It takes either an integer or hex value. Mutually exclusive with
-        C(dscp_mark_class)."
+        C(set_dscp_mark_class)."
     required: false
     default: null
   set_dscp_mark_class:
@@ -224,7 +231,7 @@ options:
     description:
       - "This allows specifying a predefined DiffServ class which will be
         translated to the corresponding DSCP mark. Mutually exclusive with
-        C(dscp_mark)."
+        C(set_dscp_mark)."
     required: false
     default: null
   comment:
@@ -249,6 +256,16 @@ options:
       - "Specifies the maximum burst before the above limit kicks in."
     required: false
     default: null
+  uid_owner:
+    version_added: "2.1"
+    description:
+      - "Specifies the UID or username to use in match by owner rule."
+    required: false
+  reject_with:
+    version_added: "2.1"
+    description:
+      - "Specifies the error packet type to return while rejecting."
+    required: false
 '''
 
 EXAMPLES = '''
@@ -291,6 +308,11 @@ def append_match(rule, param, match):
         rule.extend(['-m', match])
 
 
+def append_jump(rule, param, jump):
+    if param:
+        rule.extend(['-j', jump])
+
+
 def construct_rule(params):
     rule = []
     append_param(rule, params['protocol'], '-p', False)
@@ -298,6 +320,7 @@ def construct_rule(params):
     append_param(rule, params['destination'], '-d', False)
     append_param(rule, params['match'], '-m', True)
     append_param(rule, params['jump'], '-j', False)
+    append_param(rule, params['to_destination'], '--to-destination', False)
     append_param(rule, params['goto'], '-g', False)
     append_param(rule, params['in_interface'], '-i', False)
     append_param(rule, params['out_interface'], '-o', False)
@@ -315,6 +338,10 @@ def construct_rule(params):
     append_match(rule, params['limit'] or params['limit_burst'], 'limit')
     append_param(rule, params['limit'], '--limit', False)
     append_param(rule, params['limit_burst'], '--limit-burst', False)
+    append_match(rule, params['uid_owner'], 'owner')
+    append_param(rule, params['uid_owner'], '--uid-owner', False)
+    append_jump(rule, params['reject_with'], 'REJECT')
+    append_param(rule, params['reject_with'], '--reject-with', False)
     return rule
 
 
@@ -353,6 +380,7 @@ def main():
             protocol=dict(required=False, default=None, type='str'),
             source=dict(required=False, default=None, type='str'),
             destination=dict(required=False, default=None, type='str'),
+            to_destination=dict(required=False, default=None, type='str'),
             match=dict(required=False, default=[], type='list'),
             jump=dict(required=False, default=None, type='str'),
             goto=dict(required=False, default=None, type='str'),
@@ -369,6 +397,8 @@ def main():
             ctstate=dict(required=False, default=[], type='list'),
             limit=dict(required=False, default=None, type='str'),
             limit_burst=dict(required=False, default=None, type='str'),
+            uid_owner=dict(required=False, default=None, type='str'),
+            reject_with=dict(required=False, default=None, type='str'),
         ),
         mutually_exclusive=(
             ['set_dscp_mark', 'set_dscp_mark_class'],

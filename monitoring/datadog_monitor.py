@@ -95,7 +95,7 @@ options:
         required: false
         default: False
     thresholds:
-        description: ["A dictionary of thresholds by status. Because service checks can have multiple thresholds, we don't define them directly in the query."]
+        description: ["A dictionary of thresholds by status. This option is only available for service checks and metric alerts. Because each of them can have multiple thresholds, we don't define them directly in the query."]
         required: false
         default: {'ok': 1, 'critical': 1, 'warning': 1}
 '''
@@ -152,7 +152,7 @@ def main():
             renotify_interval=dict(required=False, default=None),
             escalation_message=dict(required=False, default=None),
             notify_audit=dict(required=False, default=False, type='bool'),
-            thresholds=dict(required=False, type='dict', default={'ok': 1, 'critical': 1, 'warning': 1}),
+            thresholds=dict(required=False, type='dict', default=None),
         )
     )
 
@@ -208,7 +208,7 @@ def _update_monitor(module, monitor, options):
                                  options=options)
         if 'errors' in msg:
             module.fail_json(msg=str(msg['errors']))
-        elif _equal_dicts(msg, monitor, ['creator', 'overall_state']):
+        elif _equal_dicts(msg, monitor, ['creator', 'overall_state', 'modified']):
             module.exit_json(changed=False, msg=msg)
         else:
             module.exit_json(changed=True, msg=msg)
@@ -228,6 +228,8 @@ def install_monitor(module):
     }
 
     if module.params['type'] == "service check":
+        options["thresholds"] = module.params['thresholds'] or {'ok': 1, 'critical': 1, 'warning': 1}
+    if module.params['type'] == "metric alert" and module.params['thresholds'] is not None:
         options["thresholds"] = module.params['thresholds']
 
     monitor = _get_monitor(module)
